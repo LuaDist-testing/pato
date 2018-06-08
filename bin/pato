@@ -1,0 +1,206 @@
+#!/usr/bin/env lua
+
+local function errexit()
+   os.exit( 1 )
+end
+
+-- https://bitbucket.org/telemachus/split/ 
+-- Without delimeter edge cases
+local function string_split( str, delimiter )
+   if str == '' then return {} end
+
+   delimiter = delimiter or '%s+'
+
+   local t = {}
+   local position = 1
+   local s, e = string.find( str, delimiter, position )
+
+   while s do
+      table.insert( t, string.sub( str, position, s-1 ) )
+      position = e + 1
+      s, e = string.find( str, delimiter, position )
+   end
+
+   if position <= #str then
+      table.insert( t, string.sub( str, position ) )
+   end
+
+   if position > #str then
+      table.insert( t, '' )
+   end
+
+   return t
+end
+
+local function string_starts( str, start )
+   return string.sub( str, 1, #start ) == start
+end
+
+local function table_tail( t, n )
+   n = n or 1
+   if # t <= n then return {} end
+
+   local result = {}
+   for i, v in ipairs( t ) do
+      if i > n then
+         table.insert( result, v )
+      end
+   end
+
+   return result
+end 
+
+local function logfln( str, ... )
+   return print( str:format( ... ) )
+end
+
+local function errfln( str, ... )
+   return io.stderr:write( str:format( ... ), "\n" )
+end
+
+--------------------------------------------------------------------------------
+
+local function check_number( i, tab )
+   local n = tonumber( i )
+
+   if n == nil then
+      errfln( "Error: %q is not a number.", i )
+      errexit()
+   end
+   
+   if n < 1 or n > #tab then
+      errfln( "Error: %q is out of range[1-%i].", n, #tab )
+      errexit()
+   end
+
+   return n
+end
+
+local function get_path( args )
+   local mode = "-e"
+   if string_starts( args[ 1 ], "-" ) then
+      mode = args[ 1 ]
+      args = table_tail( args )
+   end
+
+   local path = ""
+   if mode == "-e" then
+      path = string_split( os.getenv( "PATH" ), ":" )
+   elseif mode == "-i" then
+      path = string_split( io.read(), ":" )
+   else
+      errfln( "Error: %q is not a valid mode to read the PATH.", mode )
+      errfln( "Use -g (PATH variable) or -i (standard input stream)." )
+      errfln( "The default value will be -g." )
+      errexit()
+   end
+   return path, args
+end
+
+local function set_path( path )
+   local pathStr = table.concat( path, ":" ) -- TODO handle paths with spaces
+   logfln( pathStr )
+end
+
+--------------------------------------------------------------------------------
+
+local function insert( path, i, pv )
+   if i == nil or pv == nil then
+      errfln( "Error: The insert command requires a valid index and path as parameter." )
+      errfln( "Example: pato insert 4 ~/bin" )
+      errexit()
+   end
+   local n = check_number( i, path )
+   -- TODO check pv
+   table.insert( path, i, pv )
+   set_path( path )
+end
+
+local function list( path )
+   if #path == 0 then
+      logfln( "The PATH is empty." )
+      errexit()
+   end
+
+   for k,v in ipairs( path ) do
+      logfln( "%i\t%s", k, v )
+   end
+end
+
+local function push( path, pv )
+   if pv == nil then
+      errfln( "Error: The push command requires one valid path as parameter." )
+      errfln( "Example: pato push ~/bin" )
+      errexit()
+   end
+   -- TODO check pv
+   table.insert( path, pv )
+   set_path( path )
+end
+
+local function pushf( path, pv )
+   if pv == nil then
+      errfln( "Error: The pushf command requires one valid path as parameter." )
+      errfln( "Example: pato pushf ~/bin" )
+      errexit()
+   end
+   -- TODO check pv
+   table.insert( path, 1, pv )
+   set_path( path )
+end
+
+local function remove( path, i )
+   if i == nil then
+      errfln( "Error: The remove command requires one valid index parameter." )
+      errfln( "Example: pato remove 2" )
+      errexit()
+   end
+   local n = check_number( i, path )
+   table.remove( path, n )
+   set_path( path )
+end
+
+local function swap( path, i1, i2 )
+   if i1 == nil or i2 == nil then
+      errfln( "Error: The swap command requires two valid index parameter." )
+      errfln( "Example: pato swap 2 5" )
+      errexit()
+   end
+
+   local n1 = check_number( i1, path )
+   local n2 = check_number( i2, path )
+
+   local tmp = path[ n1 ]
+   path[ n1 ] = path[ n2 ]
+   path[ n2 ] = tmp
+
+   set_path( path )
+end
+
+--------------------------------------------------------------------------------
+
+if #arg < 1 then
+   errfln( "Error: Use at least one subcommand." )
+   errexit()
+end
+
+local path, args = get_path( arg )
+
+local cmd = args[ 1 ]
+
+if cmd == "insert" then
+   insert( path, args[ 2 ], args[ 3 ] )
+elseif cmd == "list" then
+   list( path )
+elseif cmd == "push" then
+   push( path, args[ 2 ] )
+elseif cmd == "pushf" then
+   pushf( path, args[ 2 ] )
+elseif cmd == "remove" then
+   remove( path, args[ 2 ] )
+elseif cmd == "swap" then
+   swap( path, args[ 2 ], args[ 3 ] )
+else
+   errfln( "Error: %q is not a valid command.", cmd )
+   errexit()
+end
