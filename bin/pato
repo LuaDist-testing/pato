@@ -1,54 +1,49 @@
 #!/usr/bin/env lua
 
+--------------------------------------------------------------------------------
+--LuaZDF-begin --with explode startswith
+--------------------------------------------------------------------------------
+--ZFUNC-explode-v1
+local function explode( str, delimiter, limit )
+   limit = limit or 4294967296
+   if limit == 0 then limit = 1 end
+   if limit == 1 then return { str } end
+   local tab = {}
+   local position = 1
+   local s, e = string.find( str, delimiter, position, true )
+   local cond = function( s, i ) return s end
+   if limit > 0 then
+      cond = function( s, i ) return s and i < limit - 1 end
+   end
+   while cond( s, #tab ) do
+      table.insert( tab, string.sub( str, position, s-1 ) )
+      position = e + 1
+      s, e = string.find( str, delimiter, position, true )
+   end
+   if position <= #str then
+      table.insert( tab, string.sub( str, position ) )
+   end
+   if position > #str then
+      table.insert( tab, "" )
+   end
+   if limit < 0 then
+      for i = 1, math.abs( limit ) do
+         table.remove( tab )
+      end
+   end
+   return tab
+end
+--ZFUNC-startswith-v1
+local function startswith( str, prefix )
+   return string.sub( str, 1, string.len( prefix ) ) == prefix
+end
+--------------------------------------------------------------------------------
+--LuaZDF-end
+--------------------------------------------------------------------------------
+
 local function errexit()
    os.exit( 1 )
 end
-
--- https://bitbucket.org/telemachus/split/ 
--- Without delimeter edge cases
-local function string_split( str, delimiter )
-   if str == '' then return {} end
-
-   delimiter = delimiter or '%s+'
-
-   local t = {}
-   local position = 1
-   local s, e = string.find( str, delimiter, position )
-
-   while s do
-      table.insert( t, string.sub( str, position, s-1 ) )
-      position = e + 1
-      s, e = string.find( str, delimiter, position )
-   end
-
-   if position <= #str then
-      table.insert( t, string.sub( str, position ) )
-   end
-
-   if position > #str then
-      table.insert( t, '' )
-   end
-
-   return t
-end
-
-local function string_starts( str, start )
-   return string.sub( str, 1, #start ) == start
-end
-
-local function table_tail( t, n )
-   n = n or 1
-   if # t <= n then return {} end
-
-   local result = {}
-   for i, v in ipairs( t ) do
-      if i > n then
-         table.insert( result, v )
-      end
-   end
-
-   return result
-end 
 
 local function logfln( str, ... )
    return print( str:format( ... ) )
@@ -69,25 +64,28 @@ local function check_number( i, tab )
    end
    
    if n < 1 or n > #tab then
-      errfln( "Error: %q is out of range[1-%i].", n, #tab )
+      errfln( 'Error: "%d" is out of range[1-%d].', n, #tab )
       errexit()
    end
 
    return n
 end
 
+local function popfront( tab )
+   return table.remove( tab, 1 )
+end
+
 local function get_path( args )
    local mode = "-e"
-   if string_starts( args[ 1 ], "-" ) then
-      mode = args[ 1 ]
-      args = table_tail( args )
+   if #args > 0 and startswith( args[ 1 ], "-" ) then
+      mode = popfront( args )
    end
 
    local path = ""
    if mode == "-e" then
-      path = string_split( os.getenv( "PATH" ), ":" )
+      path = explode( os.getenv( "PATH" ), ":" )
    elseif mode == "-i" then
-      path = string_split( io.read(), ":" )
+      path = explode( io.read(), ":" )
    else
       errfln( "Error: %q is not a valid mode to read the PATH.", mode )
       errfln( "Use -g (PATH variable) or -i (standard input stream)." )
@@ -102,9 +100,38 @@ local function set_path( path )
    logfln( pathStr )
 end
 
+local function usage()
+   return [[pato [-e|-i] insert <pos> <path>  - inserts a <path> before <pos>
+             list                 - list all paths in the PATH variable
+             push <path>          - adds <path> at the end
+             pushf <path>         - adds <path> at the front
+             remove <pos>         - removes the path at <pos>
+             swap <pos1> <pos2>   - swaps the values at <pos1> and <pos2>
+             usage                - prints a short usage overview
+
+Examples:
+   $ pato list
+   $ pato -e list
+   $ PATH=$( pato push $PWD)
+   $ pato remove 3 | pato -i list]]
+end
+
 --------------------------------------------------------------------------------
 
-local function insert( path, i, pv )
+local path, args = get_path( arg )
+
+if #args < 1 then
+   errfln( "Error: Use at least one subcommand." )
+   errfln( usage() )
+   errexit()
+end
+
+local cmd = popfront( args )
+
+--------------------------------------------------------------------------insert
+if cmd == "insert" then
+   local i = popfront( args )
+   local pv = popfront( args )
    if i == nil or pv == nil then
       errfln( "Error: The insert command requires a valid index and path as parameter." )
       errfln( "Example: pato insert 4 ~/bin" )
@@ -114,9 +141,9 @@ local function insert( path, i, pv )
    -- TODO check pv
    table.insert( path, i, pv )
    set_path( path )
-end
 
-local function list( path )
+----------------------------------------------------------------------------list
+elseif cmd == "list" then
    if #path == 0 then
       logfln( "The PATH is empty." )
       errexit()
@@ -125,9 +152,10 @@ local function list( path )
    for k,v in ipairs( path ) do
       logfln( "%i\t%s", k, v )
    end
-end
 
-local function push( path, pv )
+----------------------------------------------------------------------------push
+elseif cmd == "push" then
+   local pv = popfront( args )
    if pv == nil then
       errfln( "Error: The push command requires one valid path as parameter." )
       errfln( "Example: pato push ~/bin" )
@@ -136,9 +164,10 @@ local function push( path, pv )
    -- TODO check pv
    table.insert( path, pv )
    set_path( path )
-end
 
-local function pushf( path, pv )
+---------------------------------------------------------------------------pushf
+elseif cmd == "pushf" then
+   local pv = popfront( args )
    if pv == nil then
       errfln( "Error: The pushf command requires one valid path as parameter." )
       errfln( "Example: pato pushf ~/bin" )
@@ -147,9 +176,10 @@ local function pushf( path, pv )
    -- TODO check pv
    table.insert( path, 1, pv )
    set_path( path )
-end
 
-local function remove( path, i )
+--------------------------------------------------------------------------remove
+elseif cmd == "remove" then
+   local i = popfront( args )
    if i == nil then
       errfln( "Error: The remove command requires one valid index parameter." )
       errfln( "Example: pato remove 2" )
@@ -158,9 +188,11 @@ local function remove( path, i )
    local n = check_number( i, path )
    table.remove( path, n )
    set_path( path )
-end
 
-local function swap( path, i1, i2 )
+----------------------------------------------------------------------------swap
+elseif cmd == "swap" then
+   local i1 = popfront( args )
+   local i2 = popfront( args )
    if i1 == nil or i2 == nil then
       errfln( "Error: The swap command requires two valid index parameter." )
       errfln( "Example: pato swap 2 5" )
@@ -175,31 +207,12 @@ local function swap( path, i1, i2 )
    path[ n2 ] = tmp
 
    set_path( path )
-end
 
---------------------------------------------------------------------------------
+---------------------------------------------------------------------------usage
+elseif cmd == "usage" then
+   print( usage() )
 
-if #arg < 1 then
-   errfln( "Error: Use at least one subcommand." )
-   errexit()
-end
-
-local path, args = get_path( arg )
-
-local cmd = args[ 1 ]
-
-if cmd == "insert" then
-   insert( path, args[ 2 ], args[ 3 ] )
-elseif cmd == "list" then
-   list( path )
-elseif cmd == "push" then
-   push( path, args[ 2 ] )
-elseif cmd == "pushf" then
-   pushf( path, args[ 2 ] )
-elseif cmd == "remove" then
-   remove( path, args[ 2 ] )
-elseif cmd == "swap" then
-   swap( path, args[ 2 ], args[ 3 ] )
+---------------------------------------------------------------------------error
 else
    errfln( "Error: %q is not a valid command.", cmd )
    errexit()
